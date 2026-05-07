@@ -69,10 +69,33 @@ So sánh các run đã thực nghiệm:
 **Vấn đề thực nghiệm:** Phase1 (2998 mẫu) có ceiling tự nhiên ~0.68 trên cả RandomForest, ExtraTrees, GradientBoosting, HistGradientBoosting. Không hyperparam nào vượt được 0.70. Đây là giới hạn fundamental của data, không phải model.
 
 **Quyết định:** Vẫn giữ ngưỡng 0.70 trong `mlops.yml` đúng spec, không hạ xuống 0.65. Chấp nhận:
-- Bước 2 lần đầu: pipeline sẽ **fail tại job Eval** (acc=0.674 < 0.70) → demo gate hoạt động đúng nguyên tắc.
-- Bước 3 với combined data (5996 mẫu): accuracy đạt ~0.76 → pass gate → deploy thành công lần đầu.
+- Bước 2 lần đầu: pipeline sẽ **fail tại job Eval** (acc=0.676 < 0.70) → demo gate hoạt động đúng nguyên tắc.
+- Bước 3 với combined data (5996 mẫu): accuracy đạt 0.746 → pass gate → deploy thành công lần đầu.
 
 → Câu chuyện continuous training trở nên thuyết phục hơn: data mới làm model tốt hơn, đủ chất lượng để serve.
+
+---
+
+## Bước 3 — Kết quả Continuous Training
+
+Sau khi `python add_new_data.py` ghép `train_phase2.csv` (2998 mẫu) vào `train_phase1.csv` rồi `dvc add` + `dvc push` + `git push`, pipeline tự động trigger nhờ filter `paths: 'data/**.dvc'` trong workflow. Toàn bộ 4 jobs xanh, model mới (huấn luyện trên 5996 mẫu) được deploy lên VM tự động — không có thao tác thủ công nào.
+
+### So sánh metrics Bước 2 vs Bước 3
+
+Cùng `params.yaml` (n_estimators=300, max_depth=null, min_samples_split=4), cùng `eval.csv`, chỉ khác kích thước tập huấn luyện:
+
+| Chỉ số | Bước 2 (2998 mẫu) | Bước 3 (5996 mẫu) | Cải thiện |
+|---|---|---|---|
+| accuracy | 0.6760 | 0.7460 | **+7.0 điểm phần trăm** |
+| f1_score (weighted) | 0.6748 | 0.7451 | **+7.0 điểm phần trăm** |
+| Eval gate (≥ 0.70) | ❌ Fail | ✅ Pass | — |
+| Deploy job | Skipped | Triển khai thành công | — |
+
+### Phân tích
+
+- **Tăng dữ liệu giúp vượt ceiling:** Phase1 (2998 mẫu) plateau ~0.68 trên mọi thuật toán RF/GBM. Khi gấp đôi data lên 5996 mẫu, RandomForest mới đạt 0.746 — chứng tỏ không phải model yếu mà do **data scarcity** ở Bước 2.
+- **Eval gate vận hành đúng vai trò production safety:** Bước 2 mô hình chưa đủ chất lượng → gate chặn deploy → service VM giữ nguyên model cũ. Bước 3 mô hình đạt ngưỡng → tự động replace. Đây chính là vòng phản hồi của một MLOps system thực tế.
+- **Pipeline tự kích hoạt 100%:** Chỉ 1 commit dữ liệu (`data: bổ sung 2998 mẫu mới`) là đủ để toàn bộ flow chạy. Không cần thao tác thủ công, không cần SSH vào VM, không cần copy file model.
 
 ---
 
